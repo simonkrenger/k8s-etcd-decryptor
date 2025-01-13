@@ -5,6 +5,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -16,14 +17,28 @@ import (
 func main() {
 	fmt.Println("Tool to decrypt AES-CBC-encrypted objects from etcd")
 
-	fmt.Print("Enter base64-encoded etcd value: ")
-	reader := bufio.NewReader(os.Stdin)
-	b, err := reader.ReadString('\n')
-	if err != nil {
-		fmt.Printf("Error reading input: %v", err)
-		os.Exit(1)
+	var secretString string
+	if _, err := os.Stat("secretvalue"); errors.Is(err, os.ErrNotExist) {
+		// There is no file with the secret value, read from stdin
+		fmt.Print("Enter base64-encoded etcd value: ")
+		reader := bufio.NewReader(os.Stdin)
+		secretString, err = reader.ReadString('\n')
+		if err != nil {
+			fmt.Printf("Error reading input: %v", err)
+			os.Exit(1)
+		}
+	} else {
+		fmt.Printf("Found secretvalue file, reading from the file...\n")
+		// File exists, read from file
+		b, err := os.ReadFile("secretvalue")
+		if err != nil {
+			fmt.Printf("Error reading input: %v", err)
+			os.Exit(1)
+		}
+		secretString = string(b)
 	}
-	v, err := base64.StdEncoding.DecodeString(b)
+
+	v, err := base64.StdEncoding.DecodeString(secretString)
 	if err != nil {
 		fmt.Printf("Failed to decode etcd value: %v\n", err)
 		os.Exit(1)
@@ -47,7 +62,7 @@ func main() {
 	secret := []byte(s[5])
 
 	fmt.Print("Enter base64-encoded encryption key from EncryptionConfig: ")
-	reader = bufio.NewReader(os.Stdin)
+	reader := bufio.NewReader(os.Stdin)
 	key, err := reader.ReadString('\n')
 	if err != nil {
 		fmt.Printf("Error reading key: %v\n", err)
