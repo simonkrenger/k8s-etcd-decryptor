@@ -31,10 +31,11 @@ func main() {
 
 	// Decoded string looks like this: "k8s:enc:aescbc:v1:<provider-name>:<binary-aes-encrypted-data>"
 	// "<binary-aes-encrypted-data>" := "<32-bit IV><rest-of-data>"
-	s := strings.Split(string(v), ":")
+	s := strings.SplitN(string(v), ":", 6)
 
 	if len(s) != 6 {
 		fmt.Printf("Value does not have the right format: %v", s)
+		fmt.Println("Length of array is", len(s))
 		os.Exit(1)
 	}
 	if s[2] != "aescbc" {
