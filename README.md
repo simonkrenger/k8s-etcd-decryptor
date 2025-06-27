@@ -1,6 +1,6 @@
 # Tool to decrypt AES-CBC-encrypted objects from etcd
 
-This tool allows you to decrypt `aescbc` encrypted data from a Kubernetes etcd.
+This tool allows you to decrypt `aescbc` and `secretbox` encrypted data from a Kubernetes etcd.
 
 ## Description
 
@@ -12,7 +12,8 @@ Once the `EncryptionConfiguration` is created and enabled with `--encryption-pro
 "k8s:enc:<encryption-name>:v1:<provider-name>:<encrypted-data>"
 ```
 
-For `aescbc` encrypted data, the `<encrypted-data>` consists of a 32-bit IV, followed by the AES blocks (PKCS#7 padded).
+* For `aescbc` encrypted data, the `<encrypted-data>` consists of a 32-bit IV, followed by the AES blocks (PKCS#7 padded).
+* For `secretbox` encrypted data, the `<encrypted-data>` is encrypted with XSalsa20 and Poly1305.
 
 The recommended way to decrypt this data is to start a `kube-apiserver` with the correct `EncryptionConfig` and then to query the API to decrypt and retrieve the data. However, in some cases this might not be feasible, which is why this tool has been created to directly decrypt the data without a `kube-apiserver`.
 
@@ -27,7 +28,7 @@ $ ./k8s-etcd-decryptor
 
 To decrypt a certain object from a Kubernetes etcd, proceed as follows:
 
-1) To extract the an object from `etcd`, use the following command inside the `etcd` container to set up the environment variables (often found in /etc/etcd/etcd.conf) and retrieve the base64-encoded `etcd` object using `etcdctl` (a `Secret` in this example):
+1) To extract the an object from `etcd`, use the following `etcdctl get` command to set up the environment variables (often found in /etc/etcd/etcd.conf) and retrieve the base64-encoded `etcd` object using `etcdctl` (a `Secret` in this example):
 
    ```
    # source /etc/etcd/etcd.conf 
@@ -36,7 +37,7 @@ To decrypt a certain object from a Kubernetes etcd, proceed as follows:
    {"header":{"cluster_id":1535328224928523406,"member_id":10396734553733729853,"revision":30198,"raft_term":3},"kvs":[{"key":"L2t1YmVybmV0ZXMuaW8vc2VjcmV0cy9zaW1vbi1wcm9qZWN0L215LXNlY3JldA==","create_revision":28525,"mod_revision":28525,"version":1,"value":"azhzOmVuYzphZXNjYmM6djE6c2ltb246lvj7pYRT71cyo+aqLPjJ2kuvAOI4FghpUG5n405KRZOLnDU3EAw55jxDt+qAJPFArX7Jmp8wppRgdk7NE+3XiOCGnQBQWGkJX1irZ31DxotG4CfrxH4pJ0Agnmzw/e+bJAJGPO84SMFjrhInd14iseyErrfrG5s/dy0tEyDUtQMrVGMLkztYoELfBARK8+PP3H52oJmlM1rvU6jV09dbcQ=="}],"count":1}
    ```
 
-2) Retrieve the base64-encoded encryption key ("secret") from the `EncryptionConfig` (OpenShift stores it in `/etc/origin/master/encryption-config.yaml` or `/etc/kubernetes/manifests/kube-apiserver-pod-<N>/secrets/encryption-config/encryption-config`) from your Control Plane Nodes:
+2) Retrieve the base64-encoded encryption key ("secret") from the `EncryptionConfig` from your Control Plane Nodes. OpenShift stores it in `/etc/origin/master/encryption-config.yaml` or `/etc/kubernetes/manifests/kube-apiserver-pod-<N>/secrets/encryption-config/encryption-config`, other distributions might store it in a different place.
 
    ```
    # cat /etc/origin/master/encryption-config.yaml 
