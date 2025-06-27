@@ -3,21 +3,22 @@ package main
 import (
 	"bufio"
 	"crypto/aes"
-	"crypto/cipher"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"k8s.io/apiserver/pkg/storage/value"
 	aestransformer "k8s.io/apiserver/pkg/storage/value/encrypt/aes"
+	secretboxtransformer "k8s.io/apiserver/pkg/storage/value/encrypt/secretbox"
 )
 
 const etcdValueFile string = "secretvalue"
 
 func main() {
-	fmt.Println("Tool to decrypt AES-CBC-encrypted objects from etcd")
+	fmt.Println("Tool to decrypt AES-CBC and secretbox encrypted objects from etcd")
 
 	var secretString string
 	if _, err := os.Stat(etcdValueFile); errors.Is(err, os.ErrNotExist) {
@@ -63,9 +64,12 @@ func main() {
 		fmt.Println("Length of array is", len(s))
 		os.Exit(1)
 	}
-	if s[2] != "aescbc" {
-		fmt.Printf("Secret is not CBC-encrypted: %v\n", s[2])
-		fmt.Println("This tool currently only supports AES-CBC encrypted secrets")
+
+	allowedProviders := []string{"secretbox", "aescbc"}
+
+	if !slices.Contains(allowedProviders, s[2]) {
+		fmt.Printf("Unknown encryption provider: %v\n", s[2])
+		fmt.Println("This tool currently only supports AES-CBC and secretbox encrypted secrets")
 		os.Exit(1)
 	}
 
@@ -74,20 +78,30 @@ func main() {
 
 	fmt.Print("Enter base64-encoded encryption key from EncryptionConfig: ")
 	reader := bufio.NewReader(os.Stdin)
-	key, err := reader.ReadString('\n')
+	b64Key, err := reader.ReadString('\n')
 	if err != nil {
 		fmt.Printf("Error reading key: %v\n", err)
 		os.Exit(1)
 	}
 
-	block, err := newAESCipher(key)
+	key, err := base64.StdEncoding.DecodeString(b64Key)
 	if err != nil {
-		fmt.Printf("Error creating AESCipher: %v", err)
+		fmt.Printf("Failed to decode key: %v\n", err)
 		os.Exit(1)
 	}
 
-	cbcTransformer := aestransformer.NewCBCTransformer(block)
-	clearText, _, err := cbcTransformer.TransformFromStorage(secret, value.DefaultContext{})
+	var clearText []byte
+
+	switch s[2] {
+	case "aescbc":
+		clearText, err = transformCbc(secret, key)
+	case "secretbox":
+		clearText, err = transformSecretbox(secret, key)
+	default:
+		fmt.Printf("Unsupported encryption type: %v\n", s[2])
+		os.Exit(1)
+	}
+
 	if err != nil {
 		fmt.Printf("Failed to transform secret: %v\n", err)
 		os.Exit(1)
@@ -96,16 +110,30 @@ func main() {
 	fmt.Println(string(clearText)) // Print the protobuf object
 }
 
-func newAESCipher(key string) (cipher.Block, error) {
-	k, err := base64.StdEncoding.DecodeString(key)
+func transformCbc(secret []byte, key []byte) ([]byte, error) {
+	cipher, err := aes.NewCipher(key)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode config secret: %v", err)
+		return nil, fmt.Errorf("failed to create AESCipher: %w", err)
 	}
 
-	block, err := aes.NewCipher(k)
+	cbcTransformer := aestransformer.NewCBCTransformer(cipher)
+	clearText, _, err := cbcTransformer.TransformFromStorage(secret, value.DefaultContext{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to create AES cipher: %v", err)
+		return nil, fmt.Errorf("failed to transform secret: %w", err)
 	}
 
-	return block, nil
+	return clearText, nil
+}
+
+func transformSecretbox(secret []byte, key []byte) ([]byte, error) {
+	var key32 [32]byte
+	copy(key32[:], key)
+
+	secretboxTransformer := secretboxtransformer.NewSecretboxTransformer(key32)
+	clearText, _, err := secretboxTransformer.TransformFromStorage(secret, value.DefaultContext{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to transform secret: %w", err)
+	}
+
+	return clearText, nil
 }
